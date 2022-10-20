@@ -71,22 +71,69 @@ def get_arguments():
     return parser.parse_args()
 
 def read_fasta(amplicon_file, minseqlen):
-    pass
+    with gzip.open(amplicon_file, "rt") as  monfich:
+        ephem = ""
+        for line in monfich:
+            if line.startswith(">") :
+                if len(ephem) >= minseqlen:
+                    yield(ephem)
+                ephem=""
+                continue
+            ephem += line.strip()
+        yield(ephem)
 
 
 def dereplication_fulllength(amplicon_file, minseqlen, mincount):
-    pass
+    unique_sequences=[]
+    occurences=[]
+
+    sequences=read_fasta(amplicon_file, minseqlen)
+    for sequence in sequences:
+
+        if sequence not in unique_sequences:
+
+            unique_sequences.append(sequence)
+            occurences.append(1)
+        else :
+            index=unique_sequences.index(sequence)
+            occurences[index]=occurences[index]+1
+
+    zipped=sorted(zip(occurences,unique_sequences),reverse=True)
+    unique_sorted=[seq for _,seq in zipped]
+    occurences_sorted=[occ for occ,_ in zipped]
+    print(occurences_sorted)
+    for i in range(len(occurences_sorted)):
+        if occurences_sorted[i]>mincount:
+            yield [unique_sorted[i], occurences_sorted[i]]
+
+
+
 
 def get_identity(alignment_list):
     """Prend en une liste de séquences alignées au format ["SE-QUENCE1", "SE-QUENCE2"]
     Retourne le pourcentage d'identite entre les deux."""
-    pass
+    c_a = 0
+    taille = len(alignment_list[0])
+    for i in range(taille):
+        if alignment_list[0][i] == alignment_list[1][i]:
+            c_a +=1
+    res = c_a/taille * 100
+    return res 
 
 def abundance_greedy_clustering(amplicon_file, minseqlen, mincount, chunk_size, kmer_size):
-    pass
+    ref = list(dereplication_fulllength(amplicon_file, minseqlen, mincount))
+    mem = []
+    for seq in ref:
+        for seq_b in dereplication_fulllength(amplicon_file, minseqlen, mincount):
+            ali = nw.global_align(seq[0], seq_b[0], gap_open=-1, gap_extend=-1, matrix=os.path.abspath(os.path.join(os.path.dirname(__file__),"MATCH")))
+            if get_identity(ali) <= 97:
+                mem.append(seq)
+    return mem
 
 def write_OTU(OTU_list, output_file):
-    pass
+    with open(output_file,"w") as file:
+        for i,seq in enumerate(OTU_list):
+            file.write(f">OTU_{i+1} occurrence:{seq[1]}\n{textwrap.fill(seq[0], width=80)}\n")
 
 #==============================================================
 # Main program
@@ -97,6 +144,7 @@ def main():
     """
     # Get arguments
     args = get_arguments()
+    write_OTU(abundance_greedy_clustering(args.amplicon_file,args.minseqlen,args.mincount, args.chunk_size, args.kmer_size),args.output_file)
     # Votre programme ici
 
 #==============================================================
