@@ -19,6 +19,8 @@ import os
 import gzip
 import textwrap
 import nwalign3 as nw
+from tqdm import tqdm
+from collections import Counter
 # https://github.com/briney/nwalign3
 # ftp://ftp.ncbi.nih.gov/blast/matrices/
 
@@ -83,27 +85,12 @@ def read_fasta(amplicon_file, minseqlen):
 
 
 def dereplication_fulllength(amplicon_file, minseqlen, mincount):
-    unique_sequences = []
-    occurences = []
-
+ 
     sequences = read_fasta(amplicon_file, minseqlen)
-    for sequence in sequences:
+    for seq, nbr in sorted({seq: nbr for seq, nbr in Counter(sequences).items() if nbr >= mincount}.items(), 
+                            key=lambda x: x[1] ,reverse=True):
+        yield(seq, nbr)
 
-        if sequence not in unique_sequences:
-
-            unique_sequences.append(sequence)
-            occurences.append(1)
-        else:
-            index = unique_sequences.index(sequence)
-            occurences[index] = occurences[index]+1
-
-    zipped = sorted(zip(occurences, unique_sequences), reverse=True)
-    unique_sorted = [seq for _, seq in zipped]
-    occurences_sorted = [occ for occ, _ in zipped]
-    print(occurences_sorted)
-    for i in range(len(occurences_sorted)):
-        if occurences_sorted[i] > mincount:
-            yield [unique_sorted[i], occurences_sorted[i]]
 
 
 
@@ -111,25 +98,18 @@ def dereplication_fulllength(amplicon_file, minseqlen, mincount):
 def get_identity(alignment_list):
     """Prend en une liste de séquences alignées au format ["SE-QUENCE1", "SE-QUENCE2"]
     Retourne le pourcentage d'identite entre les deux."""
-    c_a = 0
-    taille = len(alignment_list[0])
-    for i in range(taille):
-        if alignment_list[0][i] == alignment_list[1][i]:
-            c_a += 1
-    res = c_a/taille * 100
-    return res
+    return sum([1 for i in range(len(alignment_list[0])) if alignment_list[0][i] == alignment_list[1][i]])/len(alignment_list[0]) * 100
 
-def abundance_greedy_clustering(amplicon_file, minseqlen, mincount):
+def abundance_greedy_clustering(amplicon_file, minseqlen, mincount, chunk_size, kmer_size):
     ref = list(dereplication_fulllength(amplicon_file, minseqlen, mincount))
     mem = []
-    for seq in ref:
-        for seq_b in dereplication_fulllength(amplicon_file, minseqlen, mincount):
-            ali = nw.global_align(seq[0], seq_b[0], gap_open=-1, gap_extend=-1, matrix=os.path.abspath(os.path.join(os.path.dirname(__file__), "MATCH")))
-            if get_identity(ali) <= 97:
-                mem.append(seq)
+    print("Comparing")
+    [mem.append(seq) for seq in ref for seq_b in dereplication_fulllength(amplicon_file, minseqlen, mincount)
+     if  get_identity(nw.global_align(seq[0], seq_b[0], gap_open=-1, gap_extend=-1, matrix=os.path.abspath
+     (os.path.join(os.path.dirname(__file__), "MATCH")))) <= 97]
     return mem
 
-def write_otu(otu_list, output_file):
+def write_OTU(otu_list, output_file):
     with open(output_file, "w") as file:
         for i, seq in enumerate(otu_list):
             file.write(f">OTU_{i+1} occurrence:{seq[1]}\n{textwrap.fill(seq[0], width=80)}\n")
@@ -143,7 +123,9 @@ def main():
     """
     # Get arguments
     args = get_arguments()
-    write_otu(abundance_greedy_clustering(args.amplicon_file,args.minseqlen,args.mincount, args.chunk_size, args.kmer_size),args.output_file)
+    otu = abundance_greedy_clustering(args.amplicon_file, args.minseqlen,args.mincount, args.chunk_size, args.kmer_size)
+    print("saving")
+    write_OTU(otu, args.output_file)
     # Votre programme ici
 
 #==============================================================
